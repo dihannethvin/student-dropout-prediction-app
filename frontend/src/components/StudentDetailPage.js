@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 
-// --- Axios Setup (same as your dashboard) ---
 const API_URL = 'http://127.0.0.1:5000';
 const getToken = () => localStorage.getItem('access_token');
 const axiosInstance = axios.create({ baseURL: API_URL });

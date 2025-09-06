@@ -59,10 +59,10 @@ function DashboardPage() {
             sortableStudents = sortableStudents.filter(s => predictions[s.id] === riskValue);
         }
         sortableStudents.sort((a, b) => {
-            const key = sortConfig.key;
-            const direction = sortConfig.direction === 'ascending' ? 1 : -1;
-            if (a[key] < b[key]) return -1 * direction;
-            if (a[key] > b[key]) return 1 * direction;
+            const keyA = isNaN(parseFloat(a[sortConfig.key])) ? a[sortConfig.key] : parseFloat(a[sortConfig.key]);
+            const keyB = isNaN(parseFloat(b[sortConfig.key])) ? b[sortConfig.key] : parseFloat(b[sortConfig.key]);
+            if (keyA < keyB) return sortConfig.direction === 'ascending' ? -1 : 1;
+            if (keyA > keyB) return sortConfig.direction === 'ascending' ? 1 : -1;
             return 0;
         });
         return sortableStudents;
@@ -108,7 +108,11 @@ function DashboardPage() {
             const response = await axiosInstance.get(`/predict/${studentId}`);
             setPredictionResult(response.data); 
             if (response.data.prediction === 1) {
-                await axiosInstance.post(`/student/${studentId}/intervention`, { recommendation: response.data.recommendation });
+                const interventionsRes = await axiosInstance.get(`/student/${studentId}/interventions`);
+                const hasExisting = interventionsRes.data.some(i => i.recommendation === response.data.recommendation && i.status === 'Pending');
+                if (!hasExisting) {
+                    await axiosInstance.post(`/student/${studentId}/intervention`, { recommendation: response.data.recommendation });
+                }
             }
         } catch (error) { console.error("Error getting prediction:", error); }
     };
@@ -130,29 +134,11 @@ function DashboardPage() {
                 <div className="form-section card">
                     <h3>{isEditing ? 'Edit Student Record' : 'Add New Student'}</h3>
                     <form onSubmit={handleFormSubmit} className="student-form">
-                        
-                        {/* --- THIS IS THE FIX for inputs and their labels --- */}
-                        <div className="form-field full-width">
-                            <label>Student Name</label>
-                            <input type="text" name="student_name" value={currentStudent.student_name} onChange={handleInputChange} required />
-                        </div>
-                        <div className="form-field">
-                            <label>Age</label>
-                            <input type="number" name="age" value={currentStudent.age} onChange={handleInputChange} required />
-                        </div>
-                        <div className="form-field">
-                            <label>GPA</label>
-                            <input type="number" step="0.1" name="gpa" value={currentStudent.gpa} onChange={handleInputChange} required />
-                        </div>
-                        <div className="form-field">
-                            <label>Absences</label>
-                            <input type="number" name="absences" value={currentStudent.absences} onChange={handleInputChange} required />
-                        </div>
-                        <div className="form-field">
-                            <label>Weekly Study Time</label>
-                            <input type="number" step="0.1" name="study_time_weekly" value={currentStudent.study_time_weekly} onChange={handleInputChange} required />
-                        </div>
-                        
+                        <div className="form-field full-width"><label>Student Name</label><input type="text" name="student_name" value={currentStudent.student_name} onChange={handleInputChange} required /></div>
+                        <div className="form-field"><label>Age</label><input type="number" name="age" value={currentStudent.age} onChange={handleInputChange} required /></div>
+                        <div className="form-field"><label>GPA</label><input type="number" step="0.1" name="gpa" value={currentStudent.gpa} onChange={handleInputChange} required /></div>
+                        <div className="form-field"><label>Absences</label><input type="number" name="absences" value={currentStudent.absences} onChange={handleInputChange} required /></div>
+                        <div className="form-field"><label>Weekly Study Time</label><input type="number" step="0.1" name="study_time_weekly" value={currentStudent.study_time_weekly} onChange={handleInputChange} required /></div>
                         {renderSelect('gender', 'Gender', ['Male', 'Female'])}
                         {renderSelect('ethnicity', 'Ethnicity', ['Caucasian', 'African American', 'Asian', 'Other'])}
                         {renderSelect('parental_education', 'Parental Education', ["None", "High School", "Some College", "Bachelor's", "Higher Degree"])}
@@ -162,48 +148,22 @@ function DashboardPage() {
                         {renderSelect('sports', 'Sports', ['No', 'Yes'])}
                         {renderSelect('music', 'Music', ['No', 'Yes'])}
                         {renderSelect('volunteering', 'Volunteering', ['No', 'Yes'])}
-
                         <button type="submit" className="submit-btn">{isEditing ? 'Update Record' : 'Add Record'}</button>
                         {isEditing && <button type="button" onClick={resetForm} className="cancel-btn">Cancel</button>}
                     </form>
                 </div>
                 <div className="list-section card">
-                    <div className="list-header">
-                        <h3>Student Roster</h3>
-                        <div className="filter-controls">
-                            <label>Filter by Status: </label>
-                            <select value={riskFilter} onChange={(e) => setRiskFilter(e.target.value)}>
-                                <option>All</option> <option>At Risk</option> <option>Not At Risk</option>
-                            </select>
-                        </div>
-                    </div>
+                    <div className="list-header"><h3>Student Roster</h3><div className="filter-controls"><label>Filter by Status: </label><select value={riskFilter} onChange={(e) => setRiskFilter(e.target.value)}><option>All</option> <option>At Risk</option> <option>Not At Risk</option></select></div></div>
                     <div className="table-container">
                         <table>
-                            <thead>
-                                <tr>
-                                    <th onClick={() => requestSort('student_name')} className="sortable">Name</th>
-                                    <th onClick={() => requestSort('gpa')} className="sortable">GPA</th>
-                                    <th>Risk Status</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
+                            <thead><tr><th onClick={() => requestSort('student_name')} className="sortable">Name</th><th onClick={() => requestSort('gpa')} className="sortable">GPA</th><th>Risk Status</th><th>Actions</th></tr></thead>
                             <tbody>
                                 {filteredAndSortedStudents.map(s => (
                                     <tr key={s.id}>
                                         <td><Link to={`/student/${s.id}`}>{s.student_name}</Link></td>
                                         <td>{s.gpa}</td>
-                                        <td>
-                                            {typeof predictions[s.id] !== 'undefined' ?
-                                                <span className={`risk-indicator ${predictions[s.id] === 1 ? 'risk' : 'no-risk'}`}>
-                                                    {predictions[s.id] === 1 ? 'At Risk' : 'Not At Risk'}
-                                                </span> : '...'
-                                            }
-                                        </td>
-                                        <td className="actions">
-                                            <button onClick={() => handlePredict(s.id)} className="action-btn predict-btn" title="Run Prediction"><PredictIcon /></button>
-                                            <button onClick={() => handleEdit(s)} className="action-btn edit-btn" title="Edit"><EditIcon /></button>
-                                            <button onClick={() => handleDelete(s.id)} className="action-btn delete-btn" title="Delete"><DeleteIcon /></button>
-                                        </td>
+                                        <td>{typeof predictions[s.id] !== 'undefined' ? <span className={`risk-indicator ${predictions[s.id] === 1 ? 'risk' : 'no-risk'}`}>{predictions[s.id] === 1 ? 'At Risk' : 'Not At Risk'}</span> : '...'}</td>
+                                        <td className="actions"><button onClick={() => handlePredict(s.id)} className="action-btn predict-btn" title="Run Prediction"><PredictIcon /></button><button onClick={() => handleEdit(s)} className="action-btn edit-btn" title="Edit"><EditIcon /></button><button onClick={() => handleDelete(s.id)} className="action-btn delete-btn" title="Delete"><DeleteIcon /></button></td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -211,7 +171,15 @@ function DashboardPage() {
                     </div>
                 </div>
             </div>
-            {predictionResult && (<div className="modal-backdrop"><div className="prediction-modal card"><h3>Prediction Result</h3><p><strong>Student:</strong> {predictionResult.student_name}</p><p><strong>Status:</strong><span className={predictionResult.prediction === 1 ? 'risk' : 'no-risk'}>{predictionResult.prediction_label}</span></p><div className="explanation-section"><p><strong>Reasoning:</strong> {predictionResult.explanation}</p><p><strong>Recommendation:</strong> {predictionResult.recommendation}</p></div><Link to={`/student/${predictionResult.student_id}`} onClick={() => setPredictionResult(null)} className="action-link">View Student Log &rarr;</Link><button onClick={() => setPredictionResult(null)}>Close</button></div></div>)}
+            {predictionResult && (<div className="modal-backdrop"><div className="prediction-modal card"><h3>Prediction Result</h3><p><strong>Student:</strong> {predictionResult.student_name}</p><p><strong>Status:</strong><span className={predictionResult.prediction === 1 ? 'risk' : 'no-risk'}>{predictionResult.prediction_label}</span></p>
+
+            <div className="explanation-section">
+                <p><strong>Reasoning:</strong> {predictionResult.explanation}</p>
+                <p><strong>Recommendation:</strong> {predictionResult.recommendation}</p>
+            </div>
+            <Link to={`/student/${predictionResult.student_id}`} onClick={() => setPredictionResult(null)} className="action-link">View Student Log &rarr;</Link>
+            <button onClick={() => setPredictionResult(null)}>Close</button>
+            </div></div>)}
         </div>
     );
 }

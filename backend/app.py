@@ -12,32 +12,32 @@ from datetime import datetime
 # Load environment variables from .env file
 load_dotenv()
 
-# --- APP SETUP ---
+#APP SETUP
 app = Flask(__name__)
 CORS(app)
 
-# --- DATABASE CONFIGURATION ---
+#DATABASE CONFIGURATION
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# --- JWT & BCRYPT CONFIGURATION ---
+#JWT & BCRYPT CONFIGURATION
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')
 jwt = JWTManager(app)
 bcrypt = Bcrypt(app)
 
-# --- LOAD THE FINAL ML MODEL ---
+#LOAD THE FINAL ML MODEL
 print("Loading the final, robust model...")
 model = joblib.load('student_model_final_robust.joblib')
 print("Model loaded successfully!")
 
-
-# --- DATABASE MODELS ---
+#DATABASE MODELS
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(128), nullable=False)
-    def __init__(self, username, password): self.username = username; self.password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+    def __init__(self, username, password): 
+        self.username = username; self.password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
     def check_password(self, password): return bcrypt.check_password_hash(self.password_hash, password)
 
 class Student(db.Model):
@@ -47,11 +47,12 @@ class Student(db.Model):
     gpa = db.Column(db.Float, nullable=False)
     absences = db.Column(db.Integer, nullable=False)
     study_time_weekly = db.Column(db.Float, nullable=False)
-    gender = db.Column(db.String(50)); ethnicity = db.Column(db.String(50)); parental_education = db.Column(db.String(100)); tutoring = db.Column(db.String(50)); parental_support = db.Column(db.String(50)); extracurricular = db.Column(db.String(50)); sports = db.Column(db.String(50)); music = db.Column(db.String(50)); volunteering = db.Column(db.String(50))
-    # Add relationship to the new Intervention table
+    gender = db.Column(db.String(50)); ethnicity = db.Column(db.String(50)); 
+    parental_education = db.Column(db.String(100)); tutoring = db.Column(db.String(50)); 
+    parental_support = db.Column(db.String(50)); extracurricular = db.Column(db.String(50)); 
+    sports = db.Column(db.String(50)); music = db.Column(db.String(50)); volunteering = db.Column(db.String(50))
     interventions = db.relationship('Intervention', backref='student', lazy=True, cascade="all, delete-orphan")
 
-# --- NEW: INTERVENTION TABLE ---
 class Intervention(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     student_id = db.Column(db.Integer, db.ForeignKey('student.id'), nullable=False)
@@ -60,7 +61,7 @@ class Intervention(db.Model):
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-# --- API ROUTES ---
+#API ROUTES
 @app.route('/register', methods=['POST'])
 def register():
     data = request.get_json(); username = data.get('username'); password = data.get('password')
@@ -89,7 +90,6 @@ def add_student():
 @jwt_required()
 def get_students():
     students = Student.query.all()
-    # Exclude interventions from this main list to keep it light
     return jsonify([{key: getattr(s, key) for key in s.__table__.columns.keys() if key != 'interventions'} for s in students])
 
 @app.route('/student/<int:student_id>', methods=['PUT'], endpoint='update_student')
@@ -111,7 +111,7 @@ def delete_student(student_id):
     db.session.delete(student); db.session.commit()
     return jsonify({'message': 'Student deleted successfully'})
 
-# --- UPDATED PREDICT ROUTE WITH RECOMMENDATIONS & EXPLANATIONS ---
+#PREDICT ROUTE
 @app.route('/predict/<int:student_id>', methods=['GET'])
 @jwt_required()
 def predict(student_id):
@@ -123,18 +123,19 @@ def predict(student_id):
     result = int(prediction[0])
     
     recommendation = "No immediate action recommended."
-    explanation = f"The student's GPA of {student.gpa} is above the risk threshold."
+    explanation = f"The student's GPA of {student.gpa} is above the established risk threshold."
 
     if result == 1:
+        # Rules for XAI and Recommendations
         if student.gpa < 1.0:
             recommendation = "Schedule mandatory academic probation meeting and tutoring."
-            explanation = f"The primary risk factor is a critically low GPA ({student.gpa})."
+            explanation = f"The primary risk factor is a critically low GPA ({student.gpa}). This is a strong indicator of potential failure."
         elif student.absences > 8:
             recommendation = "Initiate advisor outreach regarding high attendance issues."
-            explanation = f"Although the GPA is borderline, the high number of absences ({student.absences}) is a major concern."
+            explanation = f"Although the GPA is a factor, the high number of absences ({student.absences}) significantly increases the dropout risk."
         else:
             recommendation = "Place on academic watch and recommend optional tutoring."
-            explanation = f"The student's GPA ({student.gpa}) has fallen into a range associated with a higher risk of dropout."
+            explanation = f"The student's GPA ({student.gpa}) has fallen into a range that is statistically associated with a higher risk of dropout."
 
     return jsonify({
         'student_id': student.id, 'student_name': student.student_name,
@@ -143,52 +144,31 @@ def predict(student_id):
         'explanation': explanation
     })
     
-# --- NEW ROUTES FOR INTERVENTIONS ---
 @app.route('/student/<int:student_id>/interventions', methods=['GET'])
 @jwt_required()
 def get_interventions(student_id):
     interventions = Intervention.query.filter_by(student_id=student_id).order_by(Intervention.created_at.desc()).all()
-    return jsonify([{
-        'id': i.id, 'recommendation': i.recommendation, 'status': i.status,
-        'notes': i.notes, 'created_at': i.created_at.strftime('%Y-%m-%d %H:%M')
-    } for i in interventions])
+    return jsonify([{'id': i.id, 'recommendation': i.recommendation, 'status': i.status, 'notes': i.notes, 'created_at': i.created_at.strftime('%Y-%m-%d %H:%M')} for i in interventions])
 
-# This is a new route to log a new intervention
 @app.route('/student/<int:student_id>/intervention', methods=['POST'])
 @jwt_required()
 def add_intervention(student_id):
-    data = request.get_json()
-    new_intervention = Intervention(
-        student_id=student_id,
-        recommendation=data.get('recommendation'),
-        notes=data.get('notes', '')
-    )
-    db.session.add(new_intervention)
-    db.session.commit()
+    data = request.get_json(); new_intervention = Intervention(student_id=student_id, recommendation=data.get('recommendation'), notes=data.get('notes', '')); db.session.add(new_intervention); db.session.commit()
     return jsonify({'message': 'Intervention logged successfully'}), 201
-
 
 @app.route('/intervention/<int:intervention_id>', methods=['PUT'])
 @jwt_required()
 def update_intervention(intervention_id):
     intervention = Intervention.query.get(intervention_id)
     if not intervention: return jsonify({'message': 'Intervention not found'}), 404
-    data = request.get_json()
-    intervention.status = data.get('status', intervention.status)
-    intervention.notes = data.get('notes', intervention.notes)
-    db.session.commit()
+    data = request.get_json(); intervention.status = data.get('status', intervention.status); intervention.notes = data.get('notes', intervention.notes); db.session.commit()
     return jsonify({'message': 'Intervention updated successfully'})
 
-# --- DASHBOARD STATS ROUTE (SIMPLIFIED) ---
 @app.route('/dashboard_stats', methods=['GET'])
 @jwt_required()
 def dashboard_stats():
     students = Student.query.all()
-    if not students:
-        return jsonify({
-            'risk_distribution': {'at_risk': 0, 'not_at_risk': 0},
-            'gpa_distribution': {'0-1': 0, '1-2': 0, '2-3': 0, '3-4': 0, '4+': 0}
-        })
+    if not students: return jsonify({'risk_distribution': {'at_risk': 0, 'not_at_risk': 0}, 'gpa_distribution': {'0-1': 0, '1-2': 0, '2-3': 0, '3-4': 0, '4+': 0}})
 
     gpas = pd.DataFrame({'GPA': [s.gpa for s in students]})
     predictions = model.predict(gpas)

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'; // Import useEffect
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 
@@ -13,8 +13,6 @@ function LoginPage() {
     const [message, setMessage] = useState('');
     const navigate = useNavigate();
 
-    // --- THIS IS THE FIX ---
-    // This hook runs once when the page loads
     useEffect(() => {
         const token = localStorage.getItem('access_token');
         // If a token exists, the user is already logged in. Redirect them.
@@ -31,7 +29,7 @@ function LoginPage() {
                 password
             });
             localStorage.setItem('access_token', response.data.access_token);
-            window.location.href = '/dashboard'; // Keep the full reload here
+            window.location.href = '/dashboard';
         } catch (error) {
             if (error.response) {
                 setMessage(error.response.data.message);
